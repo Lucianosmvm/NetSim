@@ -78,14 +78,46 @@
   /* ---------------------------------------------------------------- MAC */
   const BCAST_MAC = 'FFFF.FFFF.FFFF';
   let macCounter = 0x0001;
+  const macsUsados = new Set();      // MACs já entregues nesta sessão ou vindos de uma topologia carregada
+
+  function macFromCounter(n) {
+    const hi = (0x00D0BA + ((n >> 16) & 0xFF)) & 0xFFFFFF;
+    const lo = n & 0xFFFF;
+    const s = (hi.toString(16).padStart(6, '0') + lo.toString(16).padStart(6, '0')).toUpperCase();
+    return s.slice(0, 4) + '.' + s.slice(4, 8) + '.' + s.slice(8, 12);
+  }
+
+  /** Caminho inverso: de que contador saiu este MAC? (null se não for do simulador) */
+  function macToCounter(mac) {
+    const hex = String(mac).replace(/[.:-]/g, '').toUpperCase();
+    if (!/^[0-9A-F]{12}$/.test(hex)) return null;
+    const bloco = parseInt(hex.slice(0, 6), 16) - 0x00D0BA;
+    const lo = parseInt(hex.slice(6), 16);
+    if (bloco < 0 || bloco > 0xFF || lo > 0xFFFF) return null;
+    return (bloco << 16) | lo;
+  }
+
+  /**
+   * Registra um MAC que já existe (topologia restaurada do navegador ou de
+   * arquivo). Sem isto o contador recomeça do zero a cada recarga da página e
+   * dispositivos novos repetem o MAC de dispositivos antigos.
+   */
+  function reserveMac(mac) {
+    if (!mac) return;
+    macsUsados.add(String(mac).toUpperCase());
+    const n = macToCounter(mac);
+    if (n !== null && n > macCounter) macCounter = n;
+  }
 
   /** Gera MAC no formato Cisco: 00D0.BA12.3456 */
   function nextMac() {
-    macCounter += 1 + Math.floor(Math.random() * 3);
-    const hi = (0x00D0BA + ((macCounter >> 16) & 0xFF)) & 0xFFFFFF;
-    const lo = macCounter & 0xFFFF;
-    const s = (hi.toString(16).padStart(6, '0') + lo.toString(16).padStart(6, '0')).toUpperCase();
-    return s.slice(0, 4) + '.' + s.slice(4, 8) + '.' + s.slice(8, 12);
+    let mac;
+    do {
+      macCounter += 1 + Math.floor(Math.random() * 3);
+      mac = macFromCounter(macCounter);
+    } while (macsUsados.has(mac));
+    macsUsados.add(mac);
+    return mac;
   }
 
   function isBcastMac(m) { return String(m).toUpperCase() === BCAST_MAC; }
@@ -116,6 +148,6 @@
   PT.util = {
     uid, isValidIp, ipToInt, intToIp, isValidMask, maskToPrefix, prefixToMask,
     networkOf, broadcastOf, sameSubnet, classfulMask, isBroadcastIp, isMulticastIp, hostAddrProblem,
-    nextMac, isBcastMac, BCAST_MAC, clamp, pad, padL, esc, deepCopy, abbrev, matchOne
+    nextMac, reserveMac, isBcastMac, BCAST_MAC, clamp, pad, padL, esc, deepCopy, abbrev, matchOne
   };
 })(window);

@@ -26,8 +26,14 @@ prefix match, rotas conectadas e estáticas, decremento de TTL**, **DHCP** e **D
 2. **Configurar** — duplo clique no dispositivo.
    * PC / notebook / servidor: abas **Config** e **Desktop** (IP estático ou DHCP).
    * Roteador / switch: aba **Config** (formulários), **CLI** (IOS) e **Tabelas** (MAC, roteamento, ARP).
-3. **Testar** — no Desktop do PC: `ping 192.168.2.10`, `tracert`, `arp -a`, `ipconfig /all`, `ipconfig /renew`.
-   Acompanhe os quadros animados e o log no rodapé.
+3. **Testar** — ferramenta **📨 Pacote** (tecla `P`): clique na origem e depois no destino para disparar
+   um pacote de teste (ICMP echo); o resultado e o motivo da falha aparecem na **Lista de PDUs**, no canto
+   inferior direito. Ou, no Desktop do PC: `ping 192.168.2.10`, `tracert`, `arp -a`, `ipconfig /all`,
+   `ipconfig /renew`. Acompanhe os quadros animados e o log no rodapé.
+
+Os quadros atravessam os cabos animados como envelopes, com rastro e o nome do protocolo, e o cabo em uso
+fica aceso. Cada cabo leva ~380 ms de simulação; o controle **Velocidade** (0,25x a 4x) deixa acompanhar
+quadro a quadro ou acelerar.
 
 Cores dos pacotes: amarelo = ARP · verde = ICMP · rosa = DHCP · azul = DNS · vermelho = erro ICMP.
 

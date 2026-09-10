@@ -83,6 +83,27 @@ main{flex:1 1 auto;display:flex;min-height:0}
   padding:5px 9px;border-radius:4px;font-size:11px;color:var(--txt-dim);pointer-events:none;
   max-width:60%;
 }
+#canvas.mode-pdu{cursor:crosshair}
+#pduBox{
+  position:absolute;right:10px;bottom:46px;width:330px;max-height:46%;
+  display:flex;flex-direction:column;background:#0d1319f2;border:1px solid var(--line);
+  border-radius:5px;font-size:11px;box-shadow:0 10px 30px #0007;
+}
+#pduBox .pduHead{
+  display:flex;align-items:center;gap:6px;padding:4px 6px;border-bottom:1px solid var(--line);
+  color:var(--txt-dim);
+}
+#pduBox .pduHead span{flex:1 1 auto}
+#pduBox .pduHead button{padding:1px 6px;font-size:11px}
+#pduList{overflow:auto}
+#pduList table{width:100%;border-collapse:collapse}
+#pduList th,#pduList td{border-bottom:1px solid #1a222c;padding:3px 6px;text-align:left;vertical-align:top}
+#pduList th{color:var(--txt-dim);font-weight:600;position:sticky;top:0;background:#131a22}
+#pduList td.det{color:var(--txt-dim);font-size:10.5px}
+#pduList .st{font-weight:700}
+#pduList .st.ok{color:#4ade80}
+#pduList .st.fail{color:#f87171}
+#pduList .st.run{color:var(--warn)}
 #zoomBox{
   position:absolute;right:10px;bottom:10px;display:flex;gap:4px;align-items:center;
   background:#0d1319cc;border:1px solid var(--line);border-radius:4px;padding:3px 5px;font-size:11px;
@@ -97,6 +118,7 @@ main{flex:1 1 auto;display:flex;min-height:0}
   paint-order:stroke;stroke:#0b0f13;stroke-width:3px;stroke-linejoin:round;
 }
 .node.selected .selRing{stroke:var(--accent);stroke-width:2;fill:none;stroke-dasharray:4 3}
+.node.pduSrc .selRing{stroke:var(--warn);stroke-width:2.5;fill:none;stroke-dasharray:none}
 .link{stroke-width:2.4;fill:none}
 .link.up{stroke:#3f9a4e}
 .link.down{stroke:#8c3a3a;stroke-dasharray:7 5}
@@ -106,8 +128,15 @@ main{flex:1 1 auto;display:flex;min-height:0}
 .linkLed.up{fill:#25c460}
 .linkLed.down{fill:#e04545}
 .linkLbl{font:9px var(--mono);fill:var(--txt-dim);pointer-events:none}
-.pkt{stroke:#0b0f13;stroke-width:1}
-.pktLbl{font:8px var(--mono);fill:#dfe9f5;text-anchor:middle;pointer-events:none}
+.link.busy{filter:drop-shadow(0 0 5px #7dd3fcaa)}
+.pktG{pointer-events:none}
+.pkt{stroke:#0b0f13;stroke-width:1.2}
+.pktFlap{stroke:#0b0f13aa;stroke-width:1.2;stroke-linejoin:round}
+.pktTrail{stroke-width:5;stroke-linecap:round;opacity:.28;pointer-events:none}
+.pktLbl{
+  font:9px var(--mono);fill:#eaf2fb;text-anchor:middle;pointer-events:none;
+  paint-order:stroke;stroke:#0b0f13;stroke-width:3px;stroke-linejoin:round;
+}
 .ghost{opacity:.55;pointer-events:none}
 .rubber{stroke:var(--accent);stroke-width:2;stroke-dasharray:5 4;fill:none;pointer-events:none}
 

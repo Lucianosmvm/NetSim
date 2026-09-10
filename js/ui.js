@@ -17,6 +17,8 @@
     armedType: null,      // tipo de dispositivo a inserir
     selected: null,       // {kind:'dev'|'link', id}
     cableStart: null,     // {dev, port}
+    pduFrom: null,        // origem escolhida para o pacote simples
+    pdus: [],             // histórico dos pacotes de teste enviados
     view: { x: 0, y: 0, w: 1200, h: 700 },
     filters: { arp: true, icmp: true, sw: true, other: true },
     windows: []
@@ -196,7 +198,9 @@
     gNodes.innerHTML = '';
     S.list().forEach(d => {
       const g = sEl('g', {
-        class: 'node' + (UI.selected && UI.selected.kind === 'dev' && UI.selected.id === d.id ? ' selected' : ''),
+        class: 'node'
+          + (UI.selected && UI.selected.kind === 'dev' && UI.selected.id === d.id ? ' selected' : '')
+          + (UI.pduFrom && UI.pduFrom.id === d.id ? ' pduSrc' : ''),
         transform: `translate(${d.x},${d.y})`, 'data-dev': d.id
       });
       const conflito = d.ports.some(p => p.ipConflict);
@@ -211,19 +215,44 @@
     });
   }
 
-  /** desenhado a cada quadro (pacotes em trânsito) */
+  /**
+   * Desenhado a cada quadro: os pacotes em trânsito nos cabos.
+   * Cada quadro vira um "envelope" (como no Packet Tracer) com rastro,
+   * e o cabo por onde ele passa fica aceso.
+   */
   function renderPackets() {
     const list = PT.engine.inflight;
     gPkts.innerHTML = '';
+
+    // cabos em uso ficam destacados enquanto houver quadro neles
+    const ocupados = new Set(list.map(p => p.linkId));
+    gLinks.querySelectorAll('line.link').forEach(ln => {
+      ln.classList.toggle('busy', ocupados.has(ln.getAttribute('data-link')));
+    });
+
     for (const p of list) {
       const a = S.dev(p.fromDev), b = S.dev(p.toDev);
       if (!a || !b) continue;
       const k = U.clamp(p.t / p.dur, 0, 1);
       const x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
-      gPkts.appendChild(sEl('rect', {
-        x: x - 7, y: y - 7, width: 14, height: 14, rx: 3, fill: p.color, class: 'pkt'
+
+      // rastro: pedaço do caminho já percorrido, logo atrás do envelope
+      const kr = Math.max(0, k - 0.16);
+      gPkts.appendChild(sEl('line', {
+        x1: a.x + (b.x - a.x) * kr, y1: a.y + (b.y - a.y) * kr, x2: x, y2: y,
+        class: 'pktTrail', stroke: p.color
       }));
-      gPkts.appendChild(sEl('text', { x, y: y - 11, class: 'pktLbl' }, p.label));
+
+      const g = sEl('g', { class: 'pktG', transform: `translate(${x},${y})` });
+      // envelope: corpo + aba
+      g.appendChild(sEl('rect', {
+        x: -12, y: -8, width: 24, height: 16, rx: 2, fill: p.color, class: 'pkt'
+      }));
+      g.appendChild(sEl('path', {
+        d: 'M-12,-8 L0,1 L12,-8', fill: 'none', class: 'pktFlap'
+      }));
+      g.appendChild(sEl('text', { x: 0, y: -13, class: 'pktLbl' }, p.label));
+      gPkts.appendChild(g);
     }
   }
 
@@ -308,6 +337,16 @@
       return;
     }
 
+    if (UI.tool === 'pdu') {
+      if (!dev) { UI.pduFrom = null; render(); setHint(); return; }
+      if (!UI.pduFrom) { UI.pduFrom = dev; render(); setHint(); return; }
+      const origem = UI.pduFrom;
+      UI.pduFrom = null;
+      sendPdu(origem, dev);
+      render(); setHint();
+      return;
+    }
+
     if (!dev && !lnk) select(null);
     else if (lnk && !dev) select({ kind: 'link', id: lnk.id });
   }
@@ -342,6 +381,12 @@
       return;
     }
     if (UI.tool === 'delete') { hint.textContent = 'Ferramenta Excluir: clique num dispositivo ou cabo'; return; }
+    if (UI.tool === 'pdu') {
+      hint.textContent = UI.pduFrom
+        ? `Pacote simples: origem ${UI.pduFrom.name} — clique no dispositivo de destino (Esc cancela)`
+        : 'Ferramenta Pacote: clique no dispositivo de origem';
+      return;
+    }
     const sel = UI.selected;
     if (sel && sel.kind === 'dev') {
       const d = S.dev(sel.id);
@@ -414,6 +459,72 @@
       (M.linkUp(l) ? '' : ` — enlace DOWN (${linkProblem(l)})`));
     if (!M.linkUp(l)) toast('Enlace criado, porém DOWN: ' + linkProblem(l), true);
     render(); setHint(); autosave();
+  }
+
+  /* ============================================================== pacote simples */
+
+  /** Porta que o dispositivo usa como endereço de teste (a primeira ativa com IP). */
+  function portaDeTeste(dev) {
+    return dev.ports.find(p => p.ip && !p.ipConflict && M.isPortUp(dev, p))
+      || dev.ports.find(p => p.ip)
+      || null;
+  }
+
+  /** Um echo request (ICMP) de um dispositivo a outro — o "PDU simples" do Packet Tracer. */
+  function sendPdu(src, dst) {
+    if (src.id === dst.id) { toast('Escolha dois dispositivos diferentes.', true); return; }
+    const pSrc = portaDeTeste(src), pDst = portaDeTeste(dst);
+    if (!pSrc) { toast(`${src.name} não tem endereço IP configurado — configure antes de enviar o pacote.`, true); return; }
+    if (!pDst) { toast(`${dst.name} não tem endereço IP configurado — configure antes de enviar o pacote.`, true); return; }
+
+    const pdu = {
+      n: ++pduSeq, src: src.name, dst: dst.name, dstIp: pDst.ip,
+      estado: 'run', resultado: 'em curso', detalhe: `${pSrc.ip} → ${pDst.ip}`
+    };
+    UI.pdus.unshift(pdu);
+    if (UI.pdus.length > 20) UI.pdus.pop();
+    renderPduList();
+
+    PT.engine.log(src, 'icmp', `pacote de teste: echo request para ${pDst.ip} (${dst.name})`);
+    if (!PT.engine.running) toast('Simulação pausada — clique em "Continuar" para o pacote andar.');
+
+    PT.engine.pingOnce(src, pDst.ip, {}, res => {
+      if (res.ok) {
+        pdu.estado = 'ok'; pdu.resultado = 'sucesso';
+        pdu.detalhe = `resposta de ${res.from} em ${res.rtt} ms, TTL ${res.ttl}`;
+      } else {
+        pdu.estado = 'fail'; pdu.resultado = 'falha';
+        pdu.detalhe = motivoDaFalha(res, pDst.ip);
+      }
+      renderPduList();
+    });
+  }
+
+  function motivoDaFalha(res, dstIp) {
+    if (res.type === 'unreachable-net') return `${res.from} respondeu: rede de destino inalcançável`;
+    if (res.type === 'unreachable-host') return `${res.from} respondeu: host de destino inalcançável`;
+    if (res.err === 'no-route') return 'sem rota para o destino (confira máscara e gateway padrão)';
+    if (res.err === 'iface-down') return 'interface de saída sem enlace (link down)';
+    if (res.err === 'arp') return `ninguém respondeu ao ARP de ${dstIp} (destino em outra rede ou desligado)`;
+    return 'tempo esgotado — nenhuma resposta';
+  }
+
+  let pduSeq = 0;
+
+  function renderPduList() {
+    const box = doc.getElementById('pduBox');
+    const list = doc.getElementById('pduList');
+    if (!box || !list) return;
+    if (!UI.pdus.length) { box.hidden = true; list.innerHTML = ''; return; }
+    box.hidden = false;
+    const rotulo = { run: 'em curso', ok: 'sucesso', fail: 'falha' };
+    list.innerHTML =
+      '<table><tr><th>#</th><th>Origem</th><th>Destino</th><th>Tipo</th><th>Resultado</th></tr>' +
+      UI.pdus.map(p =>
+        `<tr><td>${p.n}</td><td>${U.esc(p.src)}</td><td>${U.esc(p.dst)}</td><td>ICMP</td>` +
+        `<td class="st ${p.estado}">${rotulo[p.estado]}</td></tr>` +
+        `<tr><td></td><td class="det" colspan="4">${U.esc(p.detalhe)}</td></tr>`
+      ).join('') + '</table>';
   }
 
   /* ==================================================================== janelas */
@@ -916,11 +1027,13 @@
     UI.tool = t;
     if (!keepArmed) { UI.armedType = null; doc.querySelectorAll('.palItem').forEach(i => i.classList.remove('armed')); }
     UI.cableStart = null; drawRubber(null);
+    UI.pduFrom = null;
     doc.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
-    svg.classList.remove('mode-cable', 'mode-delete');
+    svg.classList.remove('mode-cable', 'mode-delete', 'mode-pdu');
     if (t === 'cable') svg.classList.add('mode-cable');
     if (t === 'delete') svg.classList.add('mode-delete');
-    setHint();
+    if (t === 'pdu') svg.classList.add('mode-pdu');
+    render(); setHint();
   }
 
   /* ==================================================================== log */
@@ -1000,6 +1113,7 @@
     S.devices = {}; S.links = {}; S.counters = {};
     PT.engine.reset(); closeAllWindows();
     $('#logList').innerHTML = '';
+    UI.pdus = []; UI.pduFrom = null; renderPduList();
     render(); setHint(); autosave();
   }
 
@@ -1036,11 +1150,17 @@
         </ul>
         <h3>4. Testar</h3>
         <ul>
+          <li>Ferramenta <b>📨 Pacote</b> (tecla <b>P</b>): clique na <b>origem</b> e depois no <b>destino</b> para disparar
+              um pacote de teste (ICMP echo). O resultado — sucesso, falha e o motivo — aparece na <b>Lista de PDUs</b>,
+              no canto inferior direito. É o equivalente ao "Add Simple PDU" do Packet Tracer.</li>
           <li>No Desktop do PC: <code>ping 192.168.2.10</code>, <code>tracert</code>, <code>arp -a</code>, <code>ipconfig /all</code>, <code>ipconfig /renew</code>.</li>
-          <li>Os quadros aparecem <b>animados nos cabos</b>: amarelo = ARP, verde = ICMP, rosa = DHCP, azul = DNS, vermelho = erro ICMP.</li>
+          <li>Os quadros aparecem <b>animados nos cabos</b>, em forma de envelope com o nome do protocolo:
+              amarelo = ARP, verde = ICMP, rosa = DHCP, azul = DNS, vermelho = erro ICMP. O cabo por onde o
+              quadro está passando fica aceso.</li>
+          <li>Cada cabo leva ~380 ms de simulação para o quadro atravessar. Use o controle de
+              <b>Velocidade</b>: 0,25x para acompanhar quadro a quadro, 4x para terminar rápido.</li>
           <li>O rodapé mostra o que cada equipamento faz (aprendizado de MAC, flooding, decisão de rota, ARP...).</li>
-          <li>Os tempos em ms são do <b>relógio da simulação</b> (cada cabo custa ~180 ms para o quadro ser animado),
-              por isso são maiores que numa rede real. Use o controle de velocidade para acelerar ou desacelerar.</li>
+          <li>Os tempos em ms são do <b>relógio da simulação</b>, por isso são maiores que numa rede real.</li>
         </ul>
         <h3>5. Levar para o laboratório real</h3>
         <ul>
@@ -1135,6 +1255,8 @@
     $('#btnClear').onclick = clearAll;
     $('#btnHelp').onclick = openHelp;
     $('#btnLab').onclick = () => PT.lab.open();
+    $('#pduClear').onclick = () => { UI.pdus = []; renderPduList(); };
+    $('#pduClose').onclick = () => { doc.getElementById('pduBox').hidden = true; };
     $('#zoomIn').onclick = () => zoomBy(0.85);
     $('#zoomOut').onclick = () => zoomBy(1.18);
     $('#zoomFit').onclick = fitView;
@@ -1146,15 +1268,18 @@
       if (e.key === 'v' || e.key === 'V') setTool('select');
       else if (e.key === 'c' || e.key === 'C') setTool('cable');
       else if (e.key === 'd' || e.key === 'D') setTool('delete');
-      else if (e.key === 'Escape') { UI.cableStart = null; UI.armedType = null; drawRubber(null); doc.querySelectorAll('.palItem').forEach(i => i.classList.remove('armed')); closePortMenu(); setHint(); }
+      else if (e.key === 'p' || e.key === 'P') setTool('pdu');
+      else if (e.key === 'Escape') { UI.cableStart = null; UI.armedType = null; UI.pduFrom = null; drawRubber(null); render(); doc.querySelectorAll('.palItem').forEach(i => i.classList.remove('armed')); closePortMenu(); setHint(); }
       else if (e.key === 'Delete' && UI.selected) {
         if (UI.selected.kind === 'dev') M.removeDevice(UI.selected.id); else M.removeLink(UI.selected.id);
         UI.selected = null; PT.engine.topologyChanged(); render(); setHint(); autosave();
       }
     });
 
-    if (!restore()) demoTopology();
-    else { render(); fitView(); setHint(); }
+    // início sempre com a área de trabalho vazia; a topologia de exemplo só
+    // entra pelo botão "Topologia exemplo"
+    restore();
+    render(); fitView(); setHint();
   }
 
   PT.ui = {

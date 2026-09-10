@@ -21,6 +21,7 @@
       <option value="serial">Serial DCE</option>
     </select>
     <button class="tool" data-tool="delete" title="Excluir (D)">Excluir</button>
+    <button class="tool" data-tool="pdu" title="Pacote simples: clique na origem e depois no destino (P)">📨 Pacote</button>
 
     <span class="sep"></span>
 
@@ -54,13 +55,22 @@
     </div>
     <div class="palHint">
       Clique num dispositivo e depois clique na área de trabalho para posicioná-lo.<br><br>
-      <b>Duplo clique</b> num dispositivo abre a janela de configuração (Config / CLI / Desktop).
+      <b>Duplo clique</b> num dispositivo abre a janela de configuração (Config / CLI / Desktop).<br><br>
+      <b>📨 Pacote</b>: clique na origem e depois no destino para enviar um pacote de teste (ICMP).
     </div>
   </aside>
 
   <section id="canvasWrap">
     <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
     <div id="statusHint"></div>
+    <div id="pduBox" hidden>
+      <div class="pduHead">
+        <span>Lista de PDUs</span>
+        <button id="pduClear" title="Limpar a lista">Limpar</button>
+        <button id="pduClose" title="Fechar">✕</button>
+      </div>
+      <div id="pduList"></div>
+    </div>
     <div id="zoomBox">
       <button id="zoomOut">−</button><span id="zoomVal">100%</span><button id="zoomIn">+</button><button id="zoomFit">⤢</button>
     </div>

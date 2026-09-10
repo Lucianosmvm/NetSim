@@ -9,9 +9,15 @@
   const M = PT.model;
   const S = M.store;
 
-  const WIRE_MS = 180;        // tempo de trânsito por cabo (ms de simulação)
-  const ARP_TIMEOUT = 3000;
-  const PING_TIMEOUT = 4000;
+  // Tempo de trânsito por cabo. Alto de propósito: é o que deixa o quadro
+  // visível atravessando o cabo na tela (use o controle de velocidade para
+  // acelerar). Os tempos de espera acompanham, senão o ping estoura sozinho.
+  const WIRE_MS = 380;       // ms de simulação por cabo
+  const ARP_TIMEOUT = 6000;
+  const PING_TIMEOUT = 9000;
+  const DHCP_TIMEOUT = 9000;
+  const DNS_TIMEOUT = 8000;
+  const PROBE_MS = 5000;     // janela do ARP gratuito para alguém reclamar o endereço
 
   const E = {
     clock: 0,
@@ -313,7 +319,7 @@
     dev._probe[port.name] = { ip: port.ip, ts: E.clock };
     log(dev, 'arp', `ARP gratuito em ${port.name}: verificando se ${port.ip} já está em uso`);
     sendFrame(dev, port, mkArp('request', port.mac, '0.0.0.0', null, port.ip));
-    after(2500, () => {
+    after(PROBE_MS, () => {
       const pr = dev._probe && dev._probe[port.name];
       if (pr && pr.ip === port.ip) delete dev._probe[port.name];   // ninguém respondeu: endereço livre
     });
@@ -559,7 +565,7 @@
       src: '0.0.0.0', dst: '255.255.255.255', ttl: 64, proto: 'udp',
       udp: { sport: 68, dport: 67, app: 'dhcp', op: 'discover', mac: port.mac, xid }
     }));
-    after(4000, () => {
+    after(DHCP_TIMEOUT, () => {
       if (dev._dhcp && dev._dhcp.xid === xid) {
         dev._dhcp = null;
         log(dev, 'err', 'DHCP sem resposta');
@@ -601,7 +607,7 @@
       src: '', dst: dev.dns, ttl: 64, proto: 'udp',
       udp: { sport: 1024 + Math.floor(Math.random() * 1000), dport: 53, app: 'dns', op: 'query', name: target, xid }
     }, () => { dev._dns = null; cb(null); });
-    after(3000, () => { if (dev._dns && dev._dns.xid === xid) { dev._dns = null; cb(null); } });
+    after(DNS_TIMEOUT, () => { if (dev._dns && dev._dns.xid === xid) { dev._dns = null; cb(null); } });
   }
 
   /* ------------------------------------------------------------------ ping */

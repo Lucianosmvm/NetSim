@@ -274,6 +274,9 @@
 
   function load(data) {
     store.devices = {}; store.links = {}; store.counters = data.counters || {};
+    // reserva os MACs da topologia antes de criar qualquer porta nova, senão
+    // o gerador (que recomeça a cada carga da página) repete endereços
+    (data.devices || []).forEach(d => (d.ports || []).forEach(p => U.reserveMac(p.mac)));
     (data.devices || []).forEach(d => {
       const dev = createDevice(d.type, d.x, d.y, d.name);
       delete store.devices[dev.id];              // descarta o id temporário
