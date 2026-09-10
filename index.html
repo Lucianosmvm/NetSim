@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NetSim — Simulador de Redes</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">Net<span>Sim</span><small>simulador de redes</small></div>
+
+  <div class="tools">
+    <button class="tool active" data-tool="select" title="Selecionar / mover (V)">Selecionar</button>
+    <button class="tool" data-tool="cable" title="Conectar cabo (C)">Cabo</button>
+    <select id="cableType" title="Tipo de cabo">
+      <option value="auto">Automático</option>
+      <option value="straight">Cobre direto</option>
+      <option value="crossover">Cobre crossover</option>
+      <option value="serial">Serial DCE</option>
+    </select>
+    <button class="tool" data-tool="delete" title="Excluir (D)">Excluir</button>
+
+    <span class="sep"></span>
+
+    <button id="btnPlay" title="Pausar / continuar simulação">⏸ Pausar</button>
+    <label class="rangeLbl">Velocidade
+      <input type="range" id="speed" min="0.25" max="4" step="0.25" value="1">
+      <span id="speedVal">1x</span>
+    </label>
+
+    <span class="sep"></span>
+
+    <button id="btnLab" class="primary">🎓 Laboratório</button>
+    <button id="btnDemo">Topologia exemplo</button>
+    <button id="btnSave">Salvar</button>
+    <button id="btnLoad">Abrir</button>
+    <button id="btnClear">Limpar</button>
+    <button id="btnHelp">Ajuda</button>
+    <input type="file" id="fileInput" accept="application/json,.json" hidden>
+  </div>
+</header>
+
+<main>
+  <aside id="palette">
+    <div class="palGroup">
+      <h4>Dispositivos de rede</h4>
+      <div class="palItems" data-group="net"></div>
+    </div>
+    <div class="palGroup">
+      <h4>Dispositivos finais</h4>
+      <div class="palItems" data-group="end"></div>
+    </div>
+    <div class="palHint">
+      Clique num dispositivo e depois clique na área de trabalho para posicioná-lo.<br><br>
+      <b>Duplo clique</b> num dispositivo abre a janela de configuração (Config / CLI / Desktop).
+    </div>
+  </aside>
+
+  <section id="canvasWrap">
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="statusHint"></div>
+    <div id="zoomBox">
+      <button id="zoomOut">−</button><span id="zoomVal">100%</span><button id="zoomIn">+</button><button id="zoomFit">⤢</button>
+    </div>
+  </section>
+</main>
+
+<footer id="console">
+  <div class="conHead">
+    <span>Registro de eventos da simulação</span>
+    <label><input type="checkbox" id="logArp" checked> ARP</label>
+    <label><input type="checkbox" id="logIcmp" checked> ICMP</label>
+    <label><input type="checkbox" id="logSw" checked> Switch/VLAN</label>
+    <label><input type="checkbox" id="logOther" checked> DHCP/DNS/Outros</label>
+    <button id="btnLogClear">Limpar log</button>
+  </div>
+  <div id="logList"></div>
+</footer>
+
+<div id="modalRoot"></div>
+
+<script src="js/util.js"></script>
+<script src="js/model.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/cli.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/lab.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
