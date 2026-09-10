@@ -33,6 +33,12 @@
 
     <span class="sep"></span>
 
+    <button id="btnMode" title="Alternar entre tempo real e simulação passo a passo">🔬 Simulação</button>
+    <button id="btnStep" title="Avançar até o próximo evento (N)" hidden>⏭ Próximo</button>
+    <button id="btnAuto" title="Avançar sozinho, um evento por vez" hidden>▶ Auto</button>
+
+    <span class="sep"></span>
+
     <button id="btnLab" class="primary">🎓 Laboratório</button>
     <button id="btnDemo">Topologia exemplo</button>
     <button id="btnSave">Salvar</button>
@@ -63,6 +69,22 @@
   <section id="canvasWrap">
     <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
     <div id="statusHint"></div>
+    <div id="simBox" hidden>
+      <div class="pduHead">
+        <span>Eventos da simulação</span>
+        <button id="simClear" title="Limpar a lista">Limpar</button>
+      </div>
+      <div class="simFilters">
+        Mostrar:
+        <label><input type="checkbox" data-simf="arp" checked> ARP</label>
+        <label><input type="checkbox" data-simf="icmp" checked> ICMP</label>
+        <label><input type="checkbox" data-simf="dhcp" checked> DHCP</label>
+        <label><input type="checkbox" data-simf="dns" checked> DNS</label>
+        <label><input type="checkbox" data-simf="outros" checked> Outros</label>
+      </div>
+      <div id="simList"></div>
+      <div class="simFoot">Clique num evento para abrir o PDU camada por camada.</div>
+    </div>
     <div id="pduBox" hidden>
       <div class="pduHead">
         <span>Lista de PDUs</span>

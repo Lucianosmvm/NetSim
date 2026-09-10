@@ -27,7 +27,15 @@
     timers: [],
     logs: [],
     onLog: null,        // callback da UI
-    maxLogs: 400
+    maxLogs: 400,
+
+    // modo de execução: 'realtime' anda sozinho; 'sim' só anda quando a UI
+    // pede o próximo evento (passo a passo, como o Packet Tracer)
+    mode: 'realtime',
+    stepUntil: null,    // instante-alvo do passo em andamento
+    events: [],         // quadros que trafegaram: um registro por salto
+    onEvent: null,      // callback da UI
+    maxEvents: 300
   };
 
   /* ------------------------------------------------------------------ tempo */
@@ -38,9 +46,14 @@
   }
 
   function tick(dtReal) {
-    if (!E.running) return;
-    const dt = dtReal * E.speed;
+    let dt = dtReal * E.speed;
+    if (E.mode === 'sim') {
+      if (E.stepUntil === null) return;               // parado esperando "Próximo"
+      dt = Math.min(dt, E.stepUntil - E.clock);
+      if (dt <= 0) { E.stepUntil = null; return; }
+    } else if (!E.running) return;
     E.clock += dt;
+    if (E.mode === 'sim' && E.stepUntil !== null && E.clock >= E.stepUntil) E.stepUntil = null;
 
     // pacotes em trânsito (antes dos temporizadores: um quadro que chega no
     // mesmo instante do timeout deve cancelá-lo)
@@ -69,6 +82,53 @@
         due.forEach(t => { try { t.fn(); } catch (e) { console.error(e); } });
       }
     }
+  }
+
+  /* ------------------------------------------------- execução passo a passo */
+
+  /** Quanto tempo falta até o próximo evento (chegada de quadro ou temporizador). */
+  function nextEventIn() {
+    let melhor = Infinity;
+    E.inflight.forEach(p => { melhor = Math.min(melhor, p.dur - p.t); });
+    E.timers.forEach(t => { if (!t.dead) melhor = Math.min(melhor, t.at - E.clock); });
+    return melhor;
+  }
+
+  /** Há algo pendente para acontecer? */
+  function hasPending() { return isFinite(nextEventIn()); }
+
+  /**
+   * Libera a simulação até o próximo evento. O quadro ainda atravessa o cabo
+   * animado (a UI continua chamando tick), só que ela para sozinha ao chegar.
+   */
+  function stepOnce() {
+    if (E.mode !== 'sim') return false;
+    const dt = nextEventIn();
+    if (!isFinite(dt)) return false;
+    E.stepUntil = E.clock + Math.max(dt, 0.001);
+    return true;
+  }
+
+  function setMode(mode) {
+    E.mode = mode === 'sim' ? 'sim' : 'realtime';
+    E.stepUntil = null;
+    if (E.mode === 'realtime') E.running = true;
+  }
+
+  function clearEvents() { E.events.length = 0; }
+
+  function pushEvent(dev, port, frame, destDev, destPort) {
+    const ev = {
+      n: E.events.length ? E.events[E.events.length - 1].n + 1 : 1,
+      t: Math.round(E.clock),
+      de: dev.name, dePorta: port.name,
+      em: destDev.name, emPorta: destPort.name,
+      tipo: pktLabel(frame), cor: pktColor(frame),
+      frame: clone(frame)
+    };
+    E.events.push(ev);
+    if (E.events.length > E.maxEvents) E.events.shift();
+    if (E.onEvent) E.onEvent(ev);
   }
 
   /* ------------------------------------------------------------------ log */
@@ -120,6 +180,7 @@
     const nb = M.neighbor(dev, port);
     if (!nb || !nb.port) return false;
     port.tx++;
+    pushEvent(dev, port, frame, nb.dev, nb.port);
     E.inflight.push({
       id: U.uid('p'),
       linkId: nb.link.id,
@@ -752,6 +813,7 @@
 
   function reset() {
     E.inflight.length = 0; E.timers.length = 0; E.clock = 0; E.logs.length = 0;
+    E.events.length = 0; E.stepUntil = null;
     S.list().forEach(d => {
       d.echoWait = {}; d._dhcp = null; d._dns = null; d._probe = {};
       d.ports.forEach(p => { p.ipConflict = false; p._annState = undefined; });
@@ -762,6 +824,7 @@
   PT.engine = Object.assign(E, {
     tick, after, log, sendFrame, ipSend, routes, lookup, ping, pingOnce, trace,
     resolve, dhcpStart, topologyChanged, reset, defaultTtl, WIRE_MS,
-    announceIp, announceChanged, ipUsable
+    announceIp, announceChanged, ipUsable,
+    setMode, stepOnce, hasPending, nextEventIn, clearEvents
   });
 })(window);

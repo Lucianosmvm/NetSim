@@ -19,6 +19,7 @@
     cableStart: null,     // {dev, port}
     pduFrom: null,        // origem escolhida para o pacote simples
     pdus: [],             // histórico dos pacotes de teste enviados
+    simFilters: { arp: true, icmp: true, dhcp: true, dns: true, outros: true },
     view: { x: 0, y: 0, w: 1200, h: 700 },
     filters: { arp: true, icmp: true, sw: true, other: true },
     windows: []
@@ -381,6 +382,11 @@
       return;
     }
     if (UI.tool === 'delete') { hint.textContent = 'Ferramenta Excluir: clique num dispositivo ou cabo'; return; }
+    if (simAtivo() && UI.tool !== 'pdu' && !UI.selected) {
+      hint.textContent = 'Modo simulação: cada clique em "Próximo" avança um salto. ' +
+        'Clique num evento da lista para ver o PDU.';
+      return;
+    }
     if (UI.tool === 'pdu') {
       hint.textContent = UI.pduFrom
         ? `Pacote simples: origem ${UI.pduFrom.name} — clique no dispositivo de destino (Esc cancela)`
@@ -486,7 +492,8 @@
     renderPduList();
 
     PT.engine.log(src, 'icmp', `pacote de teste: echo request para ${pDst.ip} (${dst.name})`);
-    if (!PT.engine.running) toast('Simulação pausada — clique em "Continuar" para o pacote andar.');
+    if (simAtivo()) toast('Modo simulação: clique em "Próximo" para o quadro andar um salto por vez.');
+    else if (!PT.engine.running) toast('Simulação pausada — clique em "Continuar" para o pacote andar.');
 
     PT.engine.pingOnce(src, pDst.ip, {}, res => {
       if (res.ok) {
@@ -525,6 +532,185 @@
         `<td class="st ${p.estado}">${rotulo[p.estado]}</td></tr>` +
         `<tr><td></td><td class="det" colspan="4">${U.esc(p.detalhe)}</td></tr>`
       ).join('') + '</table>';
+  }
+
+  /* ============================================================ modo simulação */
+
+  let autoTimer = null;
+
+  function simAtivo() { return PT.engine.mode === 'sim'; }
+
+  function setSimMode(on) {
+    PT.engine.setMode(on ? 'sim' : 'realtime');
+    pararAuto();
+    $('#btnMode').textContent = on ? '⏱ Tempo real' : '🔬 Simulação';
+    $('#btnMode').classList.toggle('active', on);
+    $('#btnStep').hidden = !on;
+    $('#btnAuto').hidden = !on;
+    $('#btnPlay').disabled = on;
+    if (!on) $('#btnPlay').textContent = PT.engine.running ? '⏸ Pausar' : '▶ Continuar';
+    $('#simBox').hidden = !on;
+    if (on) renderEvents();
+    setHint();
+  }
+
+  function passo() {
+    if (!simAtivo()) return;
+    if (!PT.engine.stepOnce()) {
+      pararAuto();
+      toast('Nada pendente — envie um pacote (ferramenta 📨 Pacote) ou um ping.');
+    }
+  }
+
+  function alternarAuto() {
+    if (autoTimer) { pararAuto(); return; }
+    if (!PT.engine.hasPending()) { toast('Nada pendente para avançar.'); return; }
+    $('#btnAuto').textContent = '⏸ Auto';
+    $('#btnAuto').classList.add('active');
+    autoTimer = setInterval(() => {
+      if (!simAtivo() || !PT.engine.stepOnce()) pararAuto();
+    }, 900);
+    passo();
+  }
+
+  function pararAuto() {
+    if (autoTimer) clearInterval(autoTimer);
+    autoTimer = null;
+    const b = $('#btnAuto');
+    if (b) { b.textContent = '▶ Auto'; b.classList.remove('active'); }
+  }
+
+  /* ------------------------------------------------ lista de eventos */
+
+  /** A que filtro este evento pertence (o mesmo agrupamento do log do rodapé). */
+  function grupoDoEvento(tipo) {
+    if (tipo === 'ARP') return 'arp';
+    if (tipo === 'ICMP' || tipo === 'ERR') return 'icmp';
+    if (tipo === 'DHCP') return 'dhcp';
+    if (tipo === 'DNS') return 'dns';
+    return 'outros';
+  }
+
+  function renderEvents() {
+    const list = doc.getElementById('simList');
+    if (!list) return;
+    const evs = PT.engine.events.filter(ev => UI.simFilters[grupoDoEvento(ev.tipo)]);
+    if (!evs.length) {
+      list.innerHTML = '<div class="muted" style="padding:8px">' +
+        (PT.engine.events.length
+          ? 'Nenhum quadro nos protocolos marcados.'
+          : 'Nenhum quadro ainda. Envie um pacote e clique em <b>Próximo</b>.') + '</div>';
+      return;
+    }
+    list.innerHTML =
+      '<table><tr><th>#</th><th>Tempo</th><th>De</th><th>Em</th><th>Tipo</th></tr>' +
+      evs.map(ev =>
+        `<tr class="ev" data-ev="${ev.n}">` +
+        `<td class="mono">${ev.n}</td><td class="mono">${ev.t} ms</td>` +
+        `<td>${U.esc(ev.de)} <span class="muted mono">${U.esc(PT.cli.shortIf(ev.dePorta))}</span></td>` +
+        `<td>${U.esc(ev.em)} <span class="muted mono">${U.esc(PT.cli.shortIf(ev.emPorta))}</span></td>` +
+        `<td><span class="dot" style="background:${ev.cor}"></span> ${ev.tipo}</td></tr>`
+      ).join('') + '</table>';
+    list.querySelectorAll('tr.ev').forEach(tr => {
+      tr.onclick = () => {
+        const ev = PT.engine.events.find(x => x.n === +tr.dataset.ev);
+        if (ev) openPduWindow(ev);
+      };
+    });
+    list.scrollTop = list.scrollHeight;
+  }
+
+  /* ------------------------------------------------ PDU camada por camada */
+  const ICMP_NOMES = {
+    'echo-request': 'Echo Request (ping)',
+    'echo-reply': 'Echo Reply (resposta do ping)',
+    'time-exceeded': 'Time Exceeded (TTL zerou)',
+    'unreachable-net': 'Destination Unreachable — rede',
+    'unreachable-host': 'Destination Unreachable — host'
+  };
+
+  function camada(titulo, linhas) {
+    const corpo = linhas.filter(Boolean)
+      .map(([k, v]) => `<tr><td>${U.esc(k)}</td><td class="v">${U.esc(v === undefined || v === null || v === '' ? '—' : v)}</td></tr>`)
+      .join('');
+    return `<div class="pduLayer"><h4>${U.esc(titulo)}</h4><table>${corpo}</table></div>`;
+  }
+
+  function pduHtml(ev) {
+    const f = ev.frame;
+    let html = camada('Camada 2 — Ethernet', [
+      ['MAC de origem', f.src],
+      ['MAC de destino', f.dst + (U.isBcastMac(f.dst) ? '  (broadcast)' : '')],
+      ['Tipo', f.type === 'arp' ? 'ARP (0x0806)' : 'IPv4 (0x0800)'],
+      f.vlan ? ['Etiqueta VLAN (802.1Q)', f.vlan] : null
+    ]);
+
+    if (f.type === 'arp') {
+      const a = f.arp;
+      html += camada('Camada 3 — ARP', [
+        ['Operação', a.op === 'request' ? 'request — "quem tem este IP?"' : 'reply — "este IP está neste MAC"'],
+        ['MAC do remetente', a.senderMac],
+        ['IP do remetente', a.senderIp],
+        ['MAC procurado', a.targetMac],
+        ['IP procurado', a.targetIp]
+      ]);
+      return html;
+    }
+
+    const ip = f.ip || {};
+    html += camada('Camada 3 — IPv4', [
+      ['IP de origem', ip.src || '0.0.0.0'],
+      ['IP de destino', ip.dst + (U.isBroadcastIp(ip.dst) ? '  (broadcast)' : '')],
+      ['TTL', ip.ttl],
+      ['Protocolo', (ip.proto || '').toUpperCase()]
+    ]);
+
+    if (ip.proto === 'icmp') {
+      const ic = ip.icmp || {};
+      html += camada('Camada 4 — ICMP', [
+        ['Tipo', ICMP_NOMES[ic.type] || ic.type],
+        ic.id !== undefined && ic.id !== null ? ['Identificador', ic.id] : null,
+        ic.seq !== undefined && ic.seq !== null ? ['Sequência', ic.seq] : null,
+        ic.size ? ['Dados', ic.size + ' bytes'] : null,
+        ic.orig ? ['Pacote que causou o erro', `${ic.orig.src} → ${ic.orig.dst}`] : null
+      ]);
+    } else if (ip.proto === 'udp') {
+      const u = ip.udp || {};
+      html += camada('Camada 4 — UDP', [
+        ['Porta de origem', u.sport],
+        ['Porta de destino', u.dport],
+        ['Aplicação', (u.app || '').toUpperCase()]
+      ]);
+      if (u.app === 'dhcp') {
+        html += camada('Aplicação — DHCP', [
+          ['Mensagem', (u.op || '').toUpperCase()],
+          ['Transação (xid)', u.xid],
+          ['MAC do cliente', u.mac],
+          u.requested ? ['Endereço pedido', u.requested] : null,
+          u.yiaddr ? ['Endereço oferecido', u.yiaddr] : null,
+          u.mask ? ['Máscara', u.mask] : null,
+          u.gw ? ['Gateway', u.gw] : null,
+          u.dns ? ['Servidor DNS', u.dns] : null,
+          u.server ? ['Servidor DHCP', u.server] : null
+        ]);
+      } else if (u.app === 'dns') {
+        html += camada('Aplicação — DNS', [
+          ['Mensagem', u.op === 'query' ? 'query (pergunta)' : 'reply (resposta)'],
+          ['Nome', u.name],
+          ['Transação (xid)', u.xid],
+          u.op === 'reply' ? ['Resposta', u.ip || 'nome não encontrado'] : null
+        ]);
+      }
+    }
+    return html;
+  }
+
+  function openPduWindow(ev) {
+    const w = makeWindow(`PDU #${ev.n} — ${ev.tipo}`, 'pdu');
+    w.body.innerHTML =
+      `<div class="hintbox">Quadro de <b>${U.esc(ev.de)}</b> (${U.esc(ev.dePorta)}) para ` +
+      `<b>${U.esc(ev.em)}</b> (${U.esc(ev.emPorta)}), no instante ${ev.t} ms da simulação. ` +
+      'É o que passaria no cabo — de fora para dentro, camada por camada.</div>' + pduHtml(ev);
   }
 
   /* ==================================================================== janelas */
@@ -1114,6 +1300,7 @@
     PT.engine.reset(); closeAllWindows();
     $('#logList').innerHTML = '';
     UI.pdus = []; UI.pduFrom = null; renderPduList();
+    PT.engine.clearEvents(); renderEvents();
     render(); setHint(); autosave();
   }
 
@@ -1153,6 +1340,12 @@
           <li>Ferramenta <b>📨 Pacote</b> (tecla <b>P</b>): clique na <b>origem</b> e depois no <b>destino</b> para disparar
               um pacote de teste (ICMP echo). O resultado — sucesso, falha e o motivo — aparece na <b>Lista de PDUs</b>,
               no canto inferior direito. É o equivalente ao "Add Simple PDU" do Packet Tracer.</li>
+          <li><b>🔬 Simulação</b>: troca do tempo real para o passo a passo. A rede congela e só anda quando você
+              clica em <b>⏭ Próximo</b> (tecla <b>N</b>) — um salto de cabo por vez — ou em <b>▶ Auto</b>.
+              Cada salto entra na <b>lista de eventos</b> (tempo, de quem, para quem, protocolo), e
+              <b>clicar no evento abre o PDU</b>: Ethernet (MACs), IPv4 (endereços e TTL) e ICMP/ARP/DHCP/DNS,
+              camada por camada. Os checkboxes filtram o protocolo que você quer acompanhar — desmarque ARP
+              para seguir só o ping, por exemplo.</li>
           <li>No Desktop do PC: <code>ping 192.168.2.10</code>, <code>tracert</code>, <code>arp -a</code>, <code>ipconfig /all</code>, <code>ipconfig /renew</code>.</li>
           <li>Os quadros aparecem <b>animados nos cabos</b>, em forma de envelope com o nome do protocolo:
               amarelo = ARP, verde = ICMP, rosa = DHCP, azul = DNS, vermelho = erro ICMP. O cabo por onde o
@@ -1255,6 +1448,14 @@
     $('#btnClear').onclick = clearAll;
     $('#btnHelp').onclick = openHelp;
     $('#btnLab').onclick = () => PT.lab.open();
+    $('#btnMode').onclick = () => setSimMode(!simAtivo());
+    $('#btnStep').onclick = passo;
+    $('#btnAuto').onclick = alternarAuto;
+    $('#simClear').onclick = () => { PT.engine.clearEvents(); renderEvents(); };
+    doc.querySelectorAll('[data-simf]').forEach(c => {
+      c.onchange = () => { UI.simFilters[c.dataset.simf] = c.checked; renderEvents(); };
+    });
+    PT.engine.onEvent = () => { if (simAtivo()) renderEvents(); };
     $('#pduClear').onclick = () => { UI.pdus = []; renderPduList(); };
     $('#pduClose').onclick = () => { doc.getElementById('pduBox').hidden = true; };
     $('#zoomIn').onclick = () => zoomBy(0.85);
@@ -1269,6 +1470,7 @@
       else if (e.key === 'c' || e.key === 'C') setTool('cable');
       else if (e.key === 'd' || e.key === 'D') setTool('delete');
       else if (e.key === 'p' || e.key === 'P') setTool('pdu');
+      else if (e.key === 'n' || e.key === 'N') passo();
       else if (e.key === 'Escape') { UI.cableStart = null; UI.armedType = null; UI.pduFrom = null; drawRubber(null); render(); doc.querySelectorAll('.palItem').forEach(i => i.classList.remove('armed')); closePortMenu(); setHint(); }
       else if (e.key === 'Delete' && UI.selected) {
         if (UI.selected.kind === 'dev') M.removeDevice(UI.selected.id); else M.removeLink(UI.selected.id);

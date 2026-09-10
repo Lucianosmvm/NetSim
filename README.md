@@ -31,6 +31,11 @@ prefix match, rotas conectadas e estáticas, decremento de TTL**, **DHCP** e **D
    inferior direito. Ou, no Desktop do PC: `ping 192.168.2.10`, `tracert`, `arp -a`, `ipconfig /all`,
    `ipconfig /renew`. Acompanhe os quadros animados e o log no rodapé.
 
+No **modo 🔬 Simulação** a rede só anda quando você manda: **⏭ Próximo** (tecla `N`) avança um salto de cabo
+por vez, **▶ Auto** avança sozinho, e cada salto entra na lista de eventos. Clicar num evento abre o **PDU
+camada por camada** — Ethernet (MAC origem/destino), IPv4 (endereços, TTL, protocolo) e ICMP / ARP / DHCP / DNS.
+Os filtros de protocolo escondem o que você não quer acompanhar (ex.: desmarcar ARP para seguir só o ping).
+
 Os quadros atravessam os cabos animados como envelopes, com rastro e o nome do protocolo, e o cabo em uso
 fica aceso. Cada cabo leva ~380 ms de simulação; o controle **Velocidade** (0,25x a 4x) deixa acompanhar
 quadro a quadro ou acelerar.
